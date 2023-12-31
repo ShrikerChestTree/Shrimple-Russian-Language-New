@@ -1,4 +1,4 @@
-# Provided by ShrikerChestTree v8.0.1
+# Provided by ShrikerChestTree v8.0.1 (TAA 1.0)
 
 profile.VANILLA=Ванилла
 profile.SHADOWS=Тени
@@ -703,10 +703,11 @@ value.DEBUG_VIEW.8=Отложенный Грубый/Металл
 value.DEBUG_VIEW.9=Отложенный ОО
 value.DEBUG_VIEW.10=Отложенная Диффузия
 value.DEBUG_VIEW.11=Отложенное Спекулярное Отражение
-value.DEBUG_VIEW.12=Цветная Тень
-value.DEBUG_VIEW.13=Плита Блюма
-value.DEBUG_VIEW.14=Плита Плотности
-value.DEBUG_VIEW.15=Белый-Мир
+value.DEBUG_VIEW.12=Скорость
+value.DEBUG_VIEW.13=Цветная Тень
+value.DEBUG_VIEW.14=Плита Блюма
+value.DEBUG_VIEW.15=Плита Плотности
+value.DEBUG_VIEW.16=Белый-Мир
 
 option.DYN_LIGHT_DEBUG_COUNTS=Количество Показываемого Света
 
