@@ -55,6 +55,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
     uniform float frameTime;
     uniform int frameCounter;
+    uniform float frameTimeCounter;
     uniform vec3 cameraPosition;
     uniform vec3 previousCameraPosition;
     uniform mat4 gbufferModelView;
@@ -65,19 +66,33 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
     #endif
 
     #include "/lib/blocks.glsl"
+    #include "/lib/lights.glsl"
 
     #include "/lib/buffers/scene.glsl"
+    #include "/lib/buffers/block_static.glsl"
     #include "/lib/buffers/block_voxel.glsl"
+    #include "/lib/buffers/light_static.glsl"
     #include "/lib/buffers/volume.glsl"
 
     #include "/lib/utility/hsv.glsl"
-    #include "/lib/utility/oklab.glsl"
+
+    #ifdef LPV_BLEND_ALT
+        #include "/lib/utility/jzazbz.glsl"
+    #endif
 
     #include "/lib/lighting/voxel/lpv.glsl"
     #include "/lib/lighting/voxel/mask.glsl"
     #include "/lib/lighting/voxel/block_mask.glsl"
     #include "/lib/lighting/voxel/blocks.glsl"
     #include "/lib/lighting/voxel/tinting.glsl"
+
+    #ifdef LIGHTING_FLICKER
+        #include "/lib/utility/anim.glsl"
+        #include "/lib/lighting/blackbody.glsl"
+        #include "/lib/lighting/flicker.glsl"
+    #endif
+    
+        #include "/lib/lighting/voxel/lights_render.glsl"
 
     #if defined WORLD_SKY_ENABLED && defined RENDER_SHADOWS_ENABLED
         #include "/lib/buffers/shadow.glsl"
@@ -104,6 +119,8 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 #endif
 
 
+const vec2 LpvBlockSkyRange = vec2(LPV_BLOCKLIGHT_SCALE, LPV_SKYLIGHT_RANGE);
+
 ivec3 GetLPVVoxelOffset() {
     vec3 voxelCameraOffset = fract(cameraPosition / LIGHT_BIN_SIZE) * LIGHT_BIN_SIZE;
     ivec3 voxelOrigin = ivec3(voxelCameraOffset + VoxelBlockCenter + 0.5);
@@ -121,8 +138,12 @@ vec4 GetLpvValue(in ivec3 texCoord) {
         ? imageLoad(imgSceneLPV_2, texCoord)
         : imageLoad(imgSceneLPV_1, texCoord);
 
-    lpvSample.b = exp2(lpvSample.b * LPV_VALUE_SCALE) - 1.0;
+    lpvSample.ba = exp2(lpvSample.ba * LpvBlockSkyRange) - 1.0;
     lpvSample.rgb = HsvToRgb(lpvSample.rgb);
+
+    #ifdef LPV_BLEND_ALT
+        lpvSample.rgb = RgbToJab(lpvSample.rgb);
+    #endif
 
     return lpvSample;
 }
@@ -253,11 +274,12 @@ float GetLpvBounceF(const in ivec3 gridBlockCell, const in ivec3 blockOffset) {
     }
 #endif
 
+const ivec3 lpvFlatten = ivec3(1, 10, 100);
+
 shared vec4 lpvSharedData[10*10*10];
 
 int getSharedCoord(ivec3 pos) {
-    const ivec3 flatten = ivec3(1, 10, 100);
-    return sumOf(pos * flatten);
+    return sumOf(pos * lpvFlatten);
 }
 
 vec4 sampleShared(ivec3 pos) {
@@ -281,55 +303,25 @@ void main() {
         uvec3 chunkPos = gl_WorkGroupID * gl_WorkGroupSize;
         if (any(greaterThanEqual(chunkPos, SceneLPVSize))) return;
 
-        ivec3 imgCoordOffset = GetLPVFrameOffset();
-        ivec3 voxelOffset = GetLPVVoxelOffset();
+        uint id1 = uint(gl_LocalInvocationIndex) * 2u;
+        if (id1 < 1000u) {
+            uint id2 = id1 + 1u;
+            ivec3 imgCoordOffset = GetLPVFrameOffset();
+            ivec3 workGroupOffset = ivec3(gl_WorkGroupID * gl_WorkGroupSize) + imgCoordOffset - 1;
 
-        // vec3 cameraOffset = fract(cameraPosition / LIGHT_BIN_SIZE) * LIGHT_BIN_SIZE;
-        vec3 cameraOffset = fract(cameraPosition);
+            ivec3 p1 = ivec3(id1 / lpvFlatten) % 10;
+            lpvSharedData[id1] = GetLpvValue(workGroupOffset + p1);
 
-        ivec3 kernelPos = ivec3(gl_LocalInvocationID + 1u);
-        ivec3 kernelEdgeDir = ivec3(step(ivec3(1), gl_LocalInvocationID)) * 2 - 1;
-        
-        // #if defined WORLD_SKY_ENABLED && defined WORLD_SHADOW_ENABLED && SHADOW_TYPE != SHADOW_TYPE_NONE //&& LIGHTING_MODE == LIGHTING_MODE_TRACED
-        //     vec3 skyLightColor = WorldSkyLightColor * (1.0 - 0.96*rainStrength);
-        //     skyLightColor *= smoothstep(0.0, 0.1, abs(localSunDirection.y));
-
-        //     float sunUpF = smoothstep(-0.2, 0.2, localSunDirection.y);
-        //     skyLightColor *= LpvBlockLightF * mix(WorldMoonBrightnessF, WorldSunBrightnessF, sunUpF);
-
-        //     skyLightColor *= mix(1.0, 0.1, rainStrength);
-        // #endif
-
-        // ivec3 imgCoord = ivec3(gl_WorkGroupID * gl_WorkGroupSize + gl_LocalInvocationID);
-        ivec3 imgCoord = ivec3(gl_GlobalInvocationID);
-
-        //barrier();
-        //memoryBarrierShared();
-
-        ivec3 o;
-        ivec3 imgCoordPrev = imgCoord + imgCoordOffset;
-
-        lpvSharedData[getSharedCoord(kernelPos)] = GetLpvValue(imgCoordPrev);
-        //voxelBlockShared[k] = blockId;
-
-        if (gl_LocalInvocationID.x == 0u || gl_LocalInvocationID.x == 7u) {
-            o = ivec3(kernelEdgeDir.x, 0, 0);
-            lpvSharedData[getSharedCoord(kernelPos + o)] = GetLpvValue(imgCoordPrev + o);
-        }
-
-        if (gl_LocalInvocationID.y == 0u || gl_LocalInvocationID.y == 7u) {
-            o = ivec3(0, kernelEdgeDir.y, 0);
-            lpvSharedData[getSharedCoord(kernelPos + o)] = GetLpvValue(imgCoordPrev + o);
-        }
-
-        if (gl_LocalInvocationID.z == 0u || gl_LocalInvocationID.z == 7u) {
-            o = ivec3(0, 0, kernelEdgeDir.z);
-            lpvSharedData[getSharedCoord(kernelPos + o)] = GetLpvValue(imgCoordPrev + o);
+            ivec3 p2 = ivec3(id2 / lpvFlatten) % 10;
+            lpvSharedData[id2] = GetLpvValue(workGroupOffset + p2);
         }
 
         barrier();
 
+        ivec3 imgCoord = ivec3(gl_GlobalInvocationID);
         if (any(greaterThanEqual(imgCoord, SceneLPVSize))) return;
+
+        ivec3 voxelOffset = GetLPVVoxelOffset();
 
         ivec3 voxelPos = voxelOffset + imgCoord;
         ivec3 gridCell = ivec3(floor(voxelPos / LIGHT_BIN_SIZE));
@@ -348,38 +340,23 @@ void main() {
 
         vec4 lightValue = vec4(0.0);
 
-        bool allowLight = false;
+        //bool allowLight = false;
+        float mixWeight = blockId == BLOCK_EMPTY ? 1.0 : 0.0;
+        uint mixMask = 0xFFFF;
         vec3 tint = vec3(1.0);
+
+        if (blockId > 0 && blockId != BLOCK_EMPTY) {
+            ParseBlockLpvData(StaticBlockMap[blockId].lpv_data, mixMask, mixWeight);
+        }
 
         #ifdef LPV_GLASS_TINT
             if (blockId >= BLOCK_HONEY && blockId <= BLOCK_TINTED_GLASS) {
                 tint = GetLightGlassTint(blockId);
-                allowLight = true;
-            }
-            else {
-        #endif
-            allowLight = IsTraceOpenBlock(blockId);
-        #ifdef LPV_GLASS_TINT
+                mixWeight = 1.0;
             }
         #endif
-
-        float mixWeight = 1.0;
-        uint mixMask = 0xFFFF;
-        if (blockId == BLOCK_SLAB_TOP || blockId == BLOCK_SLAB_BOTTOM) {
-            mixMask = mixMask & ~(1 << 2) & ~(1 << 3);
-            mixWeight = 0.5;
-            allowLight = true;
-        }
-        else if (blockId == BLOCK_DOOR_N || blockId == BLOCK_DOOR_S) {
-            allowLight = true;
-            mixMask = mixMask & ~(1 << 4) & ~(1 << 5);
-        }
-        else if (blockId == BLOCK_DOOR_W || blockId == BLOCK_DOOR_E) {
-            allowLight = true;
-            mixMask = mixMask & ~(1 << 0) & ~(1 << 1);
-        }
         
-        if (allowLight) {
+        if (mixWeight > EPSILON) {
             vec4 lightMixed = mixNeighbours(ivec3(gl_LocalInvocationID), mixMask);
             lightMixed.rgb *= mixWeight * tint;
             lightValue += lightMixed;
@@ -415,7 +392,18 @@ void main() {
                             skyLightBrightF *= DynamicLightAmbientF;
                         //#endif
 
-                        lightValue.rgb += 3.0 * (shadowColorF.rgb * skyLightBrightF) * (exp2(skyLightRange * bounceF * DynamicLightRangeF) - 1.0);
+
+
+                        vec3 skyLight = RgbToHsv(shadowColorF.rgb);
+                        //skyLight.b = (skyLightRange);
+
+                        skyLight.b = exp2(skyLightRange * shadowColorF.a) - 1.0;
+                        skyLight = HsvToRgb(skyLight);
+
+
+
+                        // lightValue.rgb += 3.0 * (shadowColorF.rgb * skyLightBrightF) * (exp2(skyLightRange * bounceF * DynamicLightRangeF) - 1.0);
+                        lightValue.rgb += skyLight;
                     }
                 #endif
 
@@ -424,8 +412,32 @@ void main() {
             #endif
         }
 
+        #ifdef LPV_BLEND_ALT
+            lightValue.rgb = JabToRgb(lightValue.rgb);
+        #endif
+
         lightValue.rgb = RgbToHsv(lightValue.rgb);
-        lightValue.b = log2(lightValue.b + 1.0) / LPV_VALUE_SCALE;
+        lightValue.ba = log2(lightValue.ba + 1.0) / LpvBlockSkyRange;
+
+        if (blockId > 0 && blockId != BLOCK_EMPTY) {
+            uint lightType = StaticBlockMap[blockId].lightType;
+
+            if (lightType != LIGHT_NONE && lightType != LIGHT_IGNORED) {
+                StaticLightData lightInfo = StaticLightMap[lightType];
+                vec3 lightColor = unpackUnorm4x8(lightInfo.Color).rgb;
+                vec2 lightRangeSize = unpackUnorm4x8(lightInfo.RangeSize).xy;
+                float lightRange = lightRangeSize.x * 255.0;
+
+                lightColor = RGBToLinear(lightColor);
+
+                #ifdef LIGHTING_FLICKER
+                   vec2 lightNoise = GetDynLightNoise(cameraPosition + blockLocalPos);
+                   ApplyLightFlicker(lightColor, lightType, lightNoise);
+                #endif
+
+                lightValue.rgb = Lpv_RgbToHsv(lightColor, lightRange);
+            }
+        }
 
         if (worldTimeCurrent - worldTimePrevious > 1000 || (worldTimeCurrent + 12000 < worldTimePrevious && worldTimeCurrent + 24000 - worldTimePrevious > 1000))
             lightValue = vec4(0.0);

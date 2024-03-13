@@ -12,18 +12,18 @@ void GetFloodfillLighting(inout vec3 blockDiffuse, inout vec3 blockSpecular, con
     #endif
 
     if (clamp(lpvPos, ivec3(0), SceneLPVSize - 1) == lpvPos) {
-        vec3 surfaceNormal = localNormal;
+        // vec3 surfaceNormal = localNormal;
 
-        if (!all(lessThan(abs(texNormal), EPSILON3))) {
-            surfaceNormal = normalize(localNormal + texNormal);
-        }
+        // if (!all(lessThan(abs(texNormal), EPSILON3))) {
+        //     surfaceNormal = normalize(localNormal + texNormal);
+        // }
 
-        vec4 lpvSample = SampleLpv(lpvPos, surfaceNormal);
+        vec4 lpvSample = SampleLpv(lpvPos, localNormal, texNormal);
         float lpvFade = GetLpvFade(lpvPos);
-        lpvFade = smootherstep(lpvFade);
+        lpvFade = _smoothstep(lpvFade);
         //lpvFade *= 1.0 - LpvLightmapMixF;
 
-        vec3 lpvLight = 3.0 * GetLpvBlockLight(lpvSample) * DynamicLightBrightness;
+        vec3 lpvLight = GetLpvBlockLight(lpvSample);
         blockDiffuse += mix(lmBlockLight, lpvLight, lpvFade);
     }
     else {
@@ -38,6 +38,5 @@ vec3 GetFinalLighting(const in vec3 albedo, in vec3 diffuse, const in vec3 specu
         vec3 final = albedo;
     #endif
 
-    // TODO: handle specular occlusion
     return final * (WorldMinLightF * occlusion + diffuse) + specular * _pow3(occlusion);
 }

@@ -247,8 +247,9 @@ const bool colortex15Clear = true;
 #define LPV_BRIGHT_SUN 1.0
 #define LPV_BRIGHT_MOON 0.02
 #define LPV_FALLOFF 0.2 // [0.001]
-#define LPV_SKYLIGHT_RANGE 96.0
-#define LPV_VALUE_SCALE 128.0
+#define LPV_SKYLIGHT_RANGE 32.0 // [16 24 32]
+#define LPV_BLOCKLIGHT_SCALE 32.0 // [16 24 32 48 64 96 128]
+//#define LPV_BLEND_ALT
 #define LPV_GLASS_TINT
 //#define LPV_VOXEL_TEST
 //#define LPV_GI
@@ -602,10 +603,10 @@ const float drynessHalflife = 20.0;
 const float shadowDistance = 100; // [25 50 75 100 125 150 200 250 300 400 600 800 1000 1200 1400 1600 2000 2400 2800 3200 3600 4000]
 const float shadowIntervalSize = 2.0f;
 const float shadowDistanceRenderMul = -1.0;
-const int shadowMapResolution = 1536; // [128 256 512 768 1024 1536 2048 3072 4096 6144 8192]
+const int shadowMapResolution = 1024; // [128 256 512 768 1024 1536 2048 3072 4096 6144 8192]
 
 const float shadowNearPlane = -1.0;
-const float shadowFarPlane = -1.0;
+//const float shadowFarPlane = -1.0;
 
 #ifdef MC_SHADOW_QUALITY
     const float shadowMapSize = shadowMapResolution * MC_SHADOW_QUALITY;
@@ -624,7 +625,16 @@ const bool shadowtex1Nearest = false;
 const bool shadowcolor0Nearest = false;
 
 //const float entityShadowDistanceMul = 0.25;
-const float voxelDistance = 128.0;
+
+#if LPV_SIZE == 3
+	const float voxelDistance = 64.0;
+#elif LPV_SIZE == 2
+	const float voxelDistance = 32.0;
+#elif LPV_SIZE == 1
+	const float voxelDistance = 16.0;
+#else
+	const float voxelDistance = 0.0;
+#endif
 
 //const mat4 TEXTURE_MATRIX_2 = mat4(vec4(0.00390625, 0.0, 0.0, 0.0), vec4(0.0, 0.00390625, 0.0, 0.0), vec4(0.0, 0.0, 0.00390625, 0.0), vec4(0.03125, 0.03125, 0.03125, 1.0));
 
